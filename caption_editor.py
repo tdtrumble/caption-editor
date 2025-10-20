@@ -23,14 +23,16 @@ class CaptionEditor:
         button_frame.pack(fill="x", pady=5)
 
         tk.Button(button_frame, text="◀ Prev", width=10, command=self.prev_image).pack(side="left", padx=5)
-        tk.Button(button_frame, text="Save", width=10, command=self.save_caption).pack(side="left", padx=5)
         tk.Button(button_frame, text="Next ▶", width=10, command=self.next_image).pack(side="left", padx=5)
         tk.Button(button_frame, text="Open Folder", width=12, command=self.load_folder).pack(side="right", padx=5)
 
         # === Bind keys ===
-        master.bind("<Left>", lambda e: self.prev_image())
-        master.bind("<Right>", lambda e: self.next_image())
-        master.bind("<Control-s>", lambda e: self.save_caption())
+        master.bind("<KP_Left>", lambda e: self.prev_image())
+        master.bind("<KeyPress-KP_4>", lambda e: self.prev_image())
+        master.bind("<Prior>", lambda e: self.prev_image())  # Page Up
+        master.bind("<KP_Right>", lambda e: self.next_image())
+        master.bind("<KeyPress-KP_6>", lambda e: self.next_image())
+        master.bind("<Next>", lambda e: self.next_image())  # Page Down
 
         # === Internal state ===
         self.folder = None
