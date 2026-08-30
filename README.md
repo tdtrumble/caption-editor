@@ -12,7 +12,7 @@ git clone https://github.com/tdtrumble/caption-editor
 
 ## Running
 
-On Windows, double-click `0_RUN.bat`. By default, the app can browse image folders under your Windows user folder and automatically chooses an available network port. You can also drag a folder onto `0_RUN.bat`, or pass a root folder explicitly:
+On Windows, double-click `0_RUN.bat`. By default, the app can browse image folders under your Windows user folder and listens on port 8070. You can also drag a folder onto `0_RUN.bat`, or pass a root folder explicitly:
 
 ```bat
 0_RUN.bat "D:\datasets"
@@ -26,7 +26,7 @@ python3 caption_editor.py --root /path/to/datasets
 
 The app prints two URLs and opens the local one automatically. To use a phone, connect it to the same Wi-Fi network and open the **Phone / local network** URL. Keep the terminal window open while using the app. If Windows asks whether Python may communicate on private networks, allow private-network access.
 
-When using the default command-line port, opening `http://127.0.0.1:8070` on the same computer without the query string automatically redirects to the current authenticated URL. `0_RUN.bat` chooses a free port, so use the URL it opens or prints. Other devices must use the complete **Phone / local network** URL printed by the app, including its port and `?key=...` part.
+Opening `http://127.0.0.1:8070` on the same computer without the query string automatically redirects to the current authenticated URL. If port 8070 is unavailable, startup stops and reports the process name and PID using it. Other devices must use the complete **Phone / local network** URL printed by the app, including its port and `?key=...` part.
 
 Useful options:
 

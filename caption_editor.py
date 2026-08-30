@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import errno
 import hmac
 import ipaddress
@@ -12,6 +13,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import subprocess
 import tempfile
 import threading
 import webbrowser
@@ -353,6 +355,59 @@ def load_access_keys(path: Path) -> list[str]:
     return keys
 
 
+def listening_pids_from_netstat(output: str, port: int) -> list[int]:
+    """Extract Windows TCP listener PIDs for an exact local port."""
+    pids = set()
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) < 5 or fields[0].upper() != "TCP" or fields[-2].upper() != "LISTENING":
+            continue
+        if fields[1].rsplit(":", 1)[-1] != str(port):
+            continue
+        try:
+            pids.add(int(fields[-1]))
+        except ValueError:
+            continue
+    return sorted(pids)
+
+
+def windows_process_name(pid: int) -> str | None:
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        row = next(csv.reader(result.stdout.splitlines()), [])
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return row[0] if len(row) >= 2 and row[1] == str(pid) else None
+
+
+def process_using_tcp_port(port: int) -> str | None:
+    if os.name != "nt":
+        return None
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    owners = []
+    for pid in listening_pids_from_netstat(result.stdout, port):
+        name = windows_process_name(pid)
+        owners.append(f"{name or 'unknown process'} (PID {pid})")
+    return ", ".join(owners) or None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Edit image caption files from a browser on your local network.")
     parser.add_argument("--root", type=Path, default=Path.home(), help="Top-level folder the app may access (default: home folder).")
@@ -379,9 +434,11 @@ def main() -> None:
         server = CaptionServer((args.host, args.port), root, access_key)
     except OSError as error:
         if error.errno in {errno.EADDRINUSE, 10048}:
+            owner = process_using_tcp_port(args.port)
+            owner_message = f" It is being used by {owner}." if owner else " The owning process could not be identified."
             raise SystemExit(
-                f"Port {args.port} is already in use. Close the earlier Caption Editor window "
-                "or start this one with --port 0 to choose a free port automatically."
+                f"Caption Editor could not start because port {args.port} is unavailable."
+                f"{owner_message} Close that process or choose another port with --port."
             ) from error
         raise
     actual_port = server.server_address[1]

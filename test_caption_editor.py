@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from caption_editor import CaptionServer, load_access_keys
+from caption_editor import CaptionServer, listening_pids_from_netstat, load_access_keys
 
 
 class CaptionServerTests(unittest.TestCase):
@@ -85,6 +85,15 @@ class CaptionServerTests(unittest.TestCase):
     def test_does_not_share_an_existing_listening_port(self):
         with self.assertRaises(OSError):
             CaptionServer(("127.0.0.1", self.server.server_address[1]), self.root, "other-key")
+
+    def test_finds_process_listening_on_exact_windows_port(self):
+        output = """
+          TCP    0.0.0.0:8070       0.0.0.0:0       LISTENING       1234
+          TCP    127.0.0.1:80701    0.0.0.0:0       LISTENING       9999
+          TCP    [::]:8070          [::]:0          LISTENING       1234
+          TCP    127.0.0.1:8070     127.0.0.1:50000 ESTABLISHED     5678
+        """
+        self.assertEqual(listening_pids_from_netstat(output, 8070), [1234])
 
     def test_loads_custom_access_keys(self):
         keys_file = self.root / "keys.txt"
