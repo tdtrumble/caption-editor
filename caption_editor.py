@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hmac
+import ipaddress
 import json
 import mimetypes
 import os
@@ -123,7 +125,7 @@ INDEX_HTML = r"""<!doctype html>
     el.closeDialog.addEventListener('click',()=>el.folderDialog.close());el.chooseFolder.addEventListener('click',()=>{el.folderDialog.close();openFolder(state.browseFolder)});
     document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){event.preventDefault();el.save.click()}if(event.target===el.caption||event.target===el.folderInput)return;if(event.key==='PageUp')navigate(-1);if(event.key==='PageDown')navigate(1)});
     window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue=''}});
-    if(!key)setStatus('Missing access key',true);else openFolder('.');
+    if(!key)setStatus('Open the full URL shown in the server window.',true);else openFolder('.');
   </script>
 </body>
 </html>
@@ -132,7 +134,16 @@ INDEX_HTML = r"""<!doctype html>
 
 class CaptionServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # On Windows, SO_REUSEADDR allows unrelated processes to bind the same
+    # port. Requests can then be delivered to either process, which breaks the
+    # per-launch access key and makes the UI appear empty. Require an exclusive
+    # listening port instead.
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def __init__(self, address: tuple[str, int], root: Path, access_key: str):
         super().__init__(address, CaptionRequestHandler)
@@ -175,6 +186,12 @@ class CaptionRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/":
+            # A user opening localhost manually should still arrive at a working
+            # UI. Remote clients must continue to use the keyed LAN URL printed
+            # at startup so the access key is not disclosed to the network.
+            if not self.authorized(parsed.query) and self.client_is_loopback():
+                self.send_redirect(f"/?key={quote(self.server.access_key, safe='')}")
+                return
             self.send_bytes(INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
             return
         if not self.authorized(parsed.query):
@@ -239,6 +256,12 @@ class CaptionRequestHandler(BaseHTTPRequestHandler):
         supplied = parse_qs(query_string).get("key", [""])[0]
         return hmac.compare_digest(supplied, self.server.access_key)
 
+    def client_is_loopback(self) -> bool:
+        try:
+            return ipaddress.ip_address(self.client_address[0]).is_loopback
+        except ValueError:
+            return False
+
     @staticmethod
     def param(query: dict[str, list[str]], name: str, default: str | None = None) -> str:
         values = query.get(name)
@@ -274,7 +297,7 @@ class CaptionRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("This folder cannot be read.") from error
         directories = []
         for item in entries:
-            if not item.is_dir() or item.name.startswith("."):
+            if not item.is_dir():
                 continue
             try:
                 image_count = sum(1 for child in item.iterdir() if child.is_file() and child.suffix.lower() in IMAGE_EXTENSIONS)
@@ -286,6 +309,13 @@ class CaptionRequestHandler(BaseHTTPRequestHandler):
 
     def send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
         self.send_bytes(json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", status)
+
+    def send_redirect(self, location: str) -> None:
+        self.send_response(HTTPStatus.FOUND)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def send_bytes(self, body: bytes, content_type: str, status: HTTPStatus = HTTPStatus.OK, cache_control: str = "no-store") -> None:
         self.send_response(status)
@@ -327,7 +357,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Edit image caption files from a browser on your local network.")
     parser.add_argument("--root", type=Path, default=Path.home(), help="Top-level folder the app may access (default: home folder).")
     parser.add_argument("--host", default="0.0.0.0", help="Network interface to bind (default: all interfaces).")
-    parser.add_argument("--port", type=int, default=8000, help="TCP port to listen on (default: 8000).")
+    parser.add_argument("--port", type=int, default=8070, help="TCP port to listen on (default: 8070).")
     parser.add_argument(
         "--keys-file",
         type=Path,
@@ -345,7 +375,15 @@ def main() -> None:
         raise SystemExit(f"Image root does not exist or is not a folder: {root}")
     keys_file = args.keys_file.expanduser().resolve()
     access_key = secrets.choice(load_access_keys(keys_file))
-    server = CaptionServer((args.host, args.port), root, access_key)
+    try:
+        server = CaptionServer((args.host, args.port), root, access_key)
+    except OSError as error:
+        if error.errno in {errno.EADDRINUSE, 10048}:
+            raise SystemExit(
+                f"Port {args.port} is already in use. Close the earlier Caption Editor window "
+                "or start this one with --port 0 to choose a free port automatically."
+            ) from error
+        raise
     actual_port = server.server_address[1]
     query_key = quote(access_key, safe="")
     computer_url = f"http://127.0.0.1:{actual_port}/?key={query_key}"

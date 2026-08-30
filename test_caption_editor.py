@@ -60,6 +60,32 @@ class CaptionServerTests(unittest.TestCase):
             self.request("/api/images", {"folder": "../"})
         self.assertEqual(traversal.exception.code, 400)
 
+    def test_browse_lists_all_root_subdirectories(self):
+        hidden_images = self.root / ".hidden-images"
+        hidden_images.mkdir()
+        (hidden_images / "hidden.jpg").write_bytes(b"not-a-real-jpg")
+
+        with self.request("/api/browse", {"folder": "."}) as response:
+            data = json.load(response)
+
+        self.assertEqual(
+            data["directories"],
+            [
+                {"name": ".hidden-images", "path": ".hidden-images", "imageCount": 1},
+                {"name": "images", "path": "images", "imageCount": 1},
+            ],
+        )
+
+    def test_bare_local_url_redirects_to_authenticated_ui(self):
+        with urlopen(f"{self.base}/", timeout=2) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.geturl(), f"{self.base}/?key=test-key")
+            self.assertIn(b"Caption Editor", response.read())
+
+    def test_does_not_share_an_existing_listening_port(self):
+        with self.assertRaises(OSError):
+            CaptionServer(("127.0.0.1", self.server.server_address[1]), self.root, "other-key")
+
     def test_loads_custom_access_keys(self):
         keys_file = self.root / "keys.txt"
         keys_file.write_text("# favorites\n apple \n\nriver\n", encoding="utf-8")
