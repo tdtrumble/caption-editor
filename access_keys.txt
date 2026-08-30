@@ -1,0 +1,8 @@
+# One access key per line. Blank lines and lines beginning with # are ignored.
+amber
+birch
+cloud
+fox
+mint
+pebble
+sparrow

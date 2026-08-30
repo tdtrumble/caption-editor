@@ -1,18 +1,47 @@
-# caption-editor
-Lightweight image caption file reviewer and editor written in python
+# Caption Editor
 
-## installation
-```bash
+A lightweight, browser-based image caption reviewer and editor written in Python. It runs locally and can be opened from another device on the same network.
+
+## Installation
+
+Python 3.9 or newer is the only requirement.
+
+```sh
 git clone https://github.com/tdtrumble/caption-editor
-sudo apt install python3-tk
-pip install Pillow
 ```
 
-## running
-```bash
-python3 caption_editor.py
+## Running
+
+On Windows, double-click `0_RUN.bat`. By default, the app can browse image folders under your Windows user folder. You can also drag a folder onto `0_RUN.bat`, or pass a root folder explicitly:
+
+```bat
+0_RUN.bat "D:\datasets"
 ```
 
-## usage
-- Use button on lower right to open a directory containing your image files and caption files (image and caption must have same file name)
-- Edit captions as needed
+On macOS or Linux:
+
+```sh
+python3 caption_editor.py --root /path/to/datasets
+```
+
+The app prints two URLs and opens the local one automatically. To use a phone, connect it to the same Wi-Fi network and open the **Phone / local network** URL. Keep the terminal window open while using the app. If Windows asks whether Python may communicate on private networks, allow private-network access.
+
+Useful options:
+
+```text
+--root PATH      Restrict the app to this folder and its subfolders
+--port PORT      Listen on a different port (default: 8000)
+--keys-file PATH Choose access keys from a different word-list file
+--no-browser     Do not open the computer's browser automatically
+```
+
+The app randomly chooses an access key from `access_keys.txt` each time it starts. Put one key on each line to customize the choices. Blank lines and lines beginning with `#` are ignored.
+
+## Usage
+
+- Open or browse to a folder containing images.
+- Caption files use the same base name as their image (for example, `photo.jpg` and `photo.txt`).
+- Captions save automatically when moving to the previous or next image. You can also use **Save caption** or Ctrl+S.
+- Page Up and Page Down navigate between images when the caption field is not focused.
+
+The server listens on the local network. Anyone who knows the selected key while the server is running can view images and edit captions under the configured root, so use private words and only run it on a trusted network.
