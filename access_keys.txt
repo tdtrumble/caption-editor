@@ -1,8 +1,6 @@
 # One access key per line. Blank lines and lines beginning with # are ignored.
-Amber
-Birch
-Cloud
-Fox
-Mint
-Pebble
-Sparrow
+World
+Banana
+Plane
+Green
+Temple

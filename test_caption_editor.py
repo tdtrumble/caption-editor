@@ -40,6 +40,8 @@ class CaptionServerTests(unittest.TestCase):
         with self.request("/api/images", {"folder": "images"}) as response:
             data = json.load(response)
         self.assertEqual(data["files"], [{"name": "sample.png", "hasCaption": False}])
+        self.assertEqual(data["captionExtension"], ".txt")
+        self.assertFalse((self.images / "sample.txt").exists())
 
         with self.request(
             "/api/caption",
@@ -50,6 +52,73 @@ class CaptionServerTests(unittest.TestCase):
             self.assertTrue(json.load(response)["saved"])
 
         self.assertEqual((self.images / "sample.txt").read_text(encoding="utf-8"), "a useful caption")
+
+        with self.request("/api/caption", {"folder": "images", "name": "sample.png"}) as response:
+            self.assertEqual(json.load(response), {"caption": "a useful caption", "exists": True})
+
+    def test_uses_a_requested_caption_extension_for_listing_loading_and_saving(self):
+        (self.images / "sample.sdxl_caption").write_text("SDXL caption", encoding="utf-8")
+
+        with self.request("/api/images", {"folder": "images", "extension": ".sdxl_caption"}) as response:
+            data = json.load(response)
+        self.assertEqual(data["captionExtension"], ".sdxl_caption")
+        self.assertTrue(data["files"][0]["hasCaption"])
+
+        with self.request(
+            "/api/caption",
+            {"folder": "images", "name": "sample.png", "extension": "sdxl_caption"},
+        ) as response:
+            self.assertEqual(json.load(response), {"caption": "SDXL caption", "exists": True})
+
+        with self.request(
+            "/api/caption",
+            {"folder": "images", "name": "sample.png", "extension": ".new_caption"},
+            method="PUT",
+            payload={"caption": "new extension caption"},
+        ):
+            pass
+        self.assertEqual((self.images / "sample.new_caption").read_text(encoding="utf-8"), "new extension caption")
+        self.assertEqual((self.images / "sample.sdxl_caption").read_text(encoding="utf-8"), "SDXL caption")
+
+    def test_rejects_unsafe_or_image_caption_extensions(self):
+        with self.assertRaises(HTTPError) as image_extension:
+            self.request("/api/images", {"folder": "images", "extension": ".png"})
+        self.assertEqual(image_extension.exception.code, 400)
+
+        with self.assertRaises(HTTPError) as path_extension:
+            self.request("/api/images", {"folder": "images", "extension": "../caption"})
+        self.assertEqual(path_extension.exception.code, 400)
+
+    def test_read_only_mode_allows_viewing_but_rejects_caption_writes(self):
+        caption_path = self.images / "sample.txt"
+        caption_path.write_text("original caption", encoding="utf-8")
+        self.server.read_only = True
+
+        with self.request("/api/config") as response:
+            self.assertEqual(json.load(response), {"readOnly": True, "defaultCaptionExtension": ".txt"})
+
+        with self.request("/api/caption", {"folder": "images", "name": "sample.png"}) as response:
+            self.assertEqual(json.load(response), {"caption": "original caption", "exists": True})
+
+        with self.assertRaises(HTTPError) as forbidden:
+            self.request(
+                "/api/caption",
+                {"folder": "images", "name": "sample.png"},
+                method="PUT",
+                payload={"caption": "changed caption"},
+            )
+        self.assertEqual(forbidden.exception.code, 403)
+        self.assertEqual(caption_path.read_text(encoding="utf-8"), "original caption")
+
+        with self.assertRaises(HTTPError) as create_forbidden:
+            self.request(
+                "/api/caption",
+                {"folder": "images", "name": "sample.png", "extension": ".new_caption"},
+                method="PUT",
+                payload={"caption": "new caption"},
+            )
+        self.assertEqual(create_forbidden.exception.code, 403)
+        self.assertFalse((self.images / "sample.new_caption").exists())
 
     def test_rejects_missing_key_and_path_traversal(self):
         with self.assertRaises(HTTPError) as unauthorized:
